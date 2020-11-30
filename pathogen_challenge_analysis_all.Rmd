@@ -1,0 +1,664 @@
+---
+title: "Pathogen Challenge of Galbut-infected flies"
+author: "Shaun T Cross"
+date: "11/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Purpose
+
+Galbut infected and uninfected DGRP 399 and 517 were challenged with various fly pathogens. This document looks to see if there is a significant difference in survival based on galbut virus infection status. This document makes use of the combined pathogen data sheet "pathogen_challenge_data_all.xlsx". The following loads in all appropriate libraries and sets the working directory where this file is saved.
+
+```{r}
+#set wd to where this file is saved
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+#load in libraries
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(ggpubr)
+library(rstatix)
+library(survival)
+library(survminer)
+library(cowplot)
+
+```
+
+## Drosophila C Virus (DCV) analysis
+
+The first pathogen that was used was DCV. These steps evaluate the signficance of lifespan of galbut infected vs uninfected flies. First load in the data and change from strain stock number to DGRP number:
+
+```{r}
+df_DCV_surv <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "DCV_surv")
+df_DCV_surv$strain <- str_replace(df_DCV_surv$strain, "25192", "DGRP-399")
+df_DCV_surv$strain <- str_replace(df_DCV_surv$strain, "25197", "DGRP-517")
+```
+
+Chop up the data to make it best for analysis by sex and strain
+
+```{r}
+df_DCV_surv_399_M <- df_DCV_surv %>% filter(strain == "DGRP-399", sex == "male", DCV == TRUE)
+df_DCV_surv_399_F <- df_DCV_surv %>% filter(strain == "DGRP-399", sex == "female", DCV == TRUE)
+
+df_DCV_surv_517_M <- df_DCV_surv %>% filter(strain == "DGRP-517", sex == "male", DCV == TRUE)
+df_DCV_surv_517_F <- df_DCV_surv %>% filter(strain == "DGRP-517", sex == "female", DCV == TRUE)
+
+```
+
+Run the survival analysis. See: https://www.emilyzabor.com/tutorials/survival_analysis_in_r_tutorial.html for an excellent introduction to survival analysis in R. Also see: https://rviews.rstudio.com/2017/09/25/survival-analysis-with-r/
+
+Any flies that either did not die by the experimental period or via unnatural causes (e.g. stuck in media or from microinjection) is censored.
+
+```{r}
+sd_DCV_399_M <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_DCV_surv_399_M)
+sd_DCV_399_F <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_DCV_surv_399_F)
+
+sd_DCV_517_M <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_DCV_surv_517_M)
+sd_DCV_517_F <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_DCV_surv_517_F)
+
+#survival analysis
+1 - pchisq(sd_DCV_399_M$chisq, length(sd_DCV_399_M$n) - 1) # p = 0.224
+1 - pchisq(sd_DCV_399_F$chisq, length(sd_DCV_399_F$n) - 1) # p = 0.341
+
+1 - pchisq(sd_DCV_517_M$chisq, length(sd_DCV_517_M$n) - 1) # p = 0.271
+1 - pchisq(sd_DCV_517_F$chisq, length(sd_DCV_517_F$n) - 1) # p = 0.0279
+
+```
+Now we are going to plot the survival curve. Givent the small time frame, the plotting function found in the survival package looks clunky. Choosing to plot with ggplot2. To do this, all censored flies were removed from the total to give number of valid flies for plotting. Then plotted as found below:
+
+```{r}
+
+df_tidy_DCV <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "DCV_tidy")
+
+df_tidy_DCV$strain <- str_replace(df_tidy_DCV$strain, "25197", "DGRP-517")
+df_tidy_DCV$strain <- str_replace(df_tidy_DCV$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_DCV_avg <- df_tidy_DCV %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_DCV <- ggplot(df_tidy_DCV_avg, aes(x=day, 
+                                         y=avg_alive, 
+                                         group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  scale_x_continuous(breaks=seq(0,14,2)) +
+  ggtitle("Drosophila C Virus Injected Flies") +
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_DCV
+
+```
+NOTE: When I plot these figures, I have removed the legend which is helpful for fitting all plots together in the final figure. To keep the legend, just remove the following line of code:
+
+```{r}
+# legend.position = "none"
+```
+
+
+## Pseudomonas aeruginosa oral challenge analysis
+
+The next pathogen that was used was P. aeurginosa (PA) via oral challenge. These steps evaluate the signficance of lifespan of galbut infected vs uninfected flies. All same analysis as above. First load in the data and change from strain stock number to DGRP number:
+
+```{r}
+df_PA_surv_feed <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PA_feed_surv")
+
+df_PA_surv_feed$strain <- str_replace(df_PA_surv_feed$strain, "25192", "DGRP-399")
+df_PA_surv_feed$strain <- str_replace(df_PA_surv_feed$strain, "25197", "DGRP-517")
+```
+Chop up the data for sex and strain.
+
+```{r}
+df_PA_surv_feed_399_M <- df_PA_surv_feed %>% filter(strain == "DGRP-399", sex == "male", pseudomonas == TRUE)
+df_PA_surv_feed_399_F <- df_PA_surv_feed %>% filter(strain == "DGRP-399", sex == "female", pseudomonas == TRUE)
+
+df_PA_surv_feed_517_M <- df_PA_surv_feed %>% filter(strain == "DGRP-517", sex == "male", pseudomonas == TRUE)
+df_PA_surv_feed_517_F <- df_PA_surv_feed %>% filter(strain == "DGRP-517", sex == "female", pseudomonas == TRUE)
+```
+Survival analysis
+
+```{r}
+sd_PA_surv_feed_399_M <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_PA_surv_feed_399_M)
+sd_PA_surv_feed_399_F <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_PA_surv_feed_399_F)
+
+sd_PA_surv_feed_517_M <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_PA_surv_feed_517_M)
+sd_PA_surv_feed_517_F <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_PA_surv_feed_517_F)
+
+#survival analysis
+1 - pchisq(sd_PA_surv_feed_399_M$chisq, length(sd_PA_surv_feed_399_M$n) - 1) # p = 0.3001
+1 - pchisq(sd_PA_surv_feed_399_F$chisq, length(sd_PA_surv_feed_399_M$n) - 1) # p = 4.5e-6
+
+1 - pchisq(sd_PA_surv_feed_517_M$chisq, length(sd_PA_surv_feed_517_M$n) - 1) # p = 0.42
+1 - pchisq(sd_PA_surv_feed_517_F$chisq, length(sd_PA_surv_feed_517_F$n) - 1) # p = 0.729
+
+```
+Using tidy data, plot survival curves
+
+```{r}
+df_tidy_pseudomonas_feed <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PA_feed_tidy")
+
+df_tidy_pseudomonas_feed$strain <- str_replace(df_tidy_pseudomonas_feed$strain, "25197", "DGRP-517")
+df_tidy_pseudomonas_feed$strain <- str_replace(df_tidy_pseudomonas_feed$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_pseudomonas_feed_avg <- df_tidy_pseudomonas_feed %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+
+
+p_PA_feed <- ggplot(df_tidy_pseudomonas_feed_avg, aes(x=day, 
+                                                y=avg_alive, 
+                                                group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  scale_x_continuous(breaks=seq(0,12,2)) +
+  ggtitle("Pseudomonas aeruginosa Orally Challenged Flies") +
+  xlab("Days since oral challenge began")  +
+  ylab("Mean percent flies alive per vial")
+
+p_PA_feed
+```
+## Pseudomonas aeruginosa inject challenge analysis
+
+Oral inoculation has limitations in reproducibility as it is highly dependent on how much the flies eat. Injection allows for an exact dosage. Did PA injection next.
+
+```{r}
+df_PA_surv_inject <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PA_inject_surv")
+
+df_PA_surv_inject$strain <- str_replace(df_PA_surv_inject$strain, "25197", "DGRP-517")
+df_PA_surv_inject$strain <- str_replace(df_PA_surv_inject$strain, "25192", "DGRP-399")
+```
+
+Split data for sex and strain analysis
+
+```{r}
+df_PA_surv_inject_399_M <- df_PA_surv_inject %>% filter(strain == "DGRP-399", sex == "male", pseudomonas == TRUE)
+df_PA_surv_inject_399_F <- df_PA_surv_inject %>% filter(strain == "DGRP-399", sex == "female", pseudomonas == TRUE)
+
+df_PA_surv_inject_517_M <- df_PA_surv_inject %>% filter(strain == "DGRP-517", sex == "male", pseudomonas == TRUE)
+df_PA_surv_inject_517_F <- df_PA_surv_inject %>% filter(strain == "DGRP-517", sex == "female", pseudomonas == TRUE)
+
+```
+Run the survival analysis. Same as above, flies that died unnaturally are censored.
+
+```{r}
+sd_PA_surv_inject_399_M <- survdiff(Surv(hours_survived, !censor) ~ galbut, data = df_PA_surv_inject_399_M)
+sd_PA_surv_inject_399_F <- survdiff(Surv(hours_survived, !censor) ~ galbut, data = df_PA_surv_inject_399_F)
+
+sd_PA_surv_inject_517_M <- survdiff(Surv(hours_survived, !censor) ~ galbut, data = df_PA_surv_inject_517_M)
+sd_PA_surv_inject_517_F <- survdiff(Surv(hours_survived, !censor) ~ galbut, data = df_PA_surv_inject_517_F)
+
+#survival analysis
+1 - pchisq(sd_PA_surv_inject_399_M$chisq, length(sd_PA_surv_inject_399_M$n) - 1) # p = 0.8907
+1 - pchisq(sd_PA_surv_inject_399_F$chisq, length(sd_PA_surv_inject_399_F$n) - 1) # p = 0.1362
+
+1 - pchisq(sd_PA_surv_inject_517_M$chisq, length(sd_PA_surv_inject_517_M$n) - 1) # p = 0.2183
+1 - pchisq(sd_PA_surv_inject_517_F$chisq, length(sd_PA_surv_inject_517_F$n) - 1) # p = 0.2112
+```
+Now plot the survival curves.
+
+```{r}
+df_tidy_pseudomonas_inject <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PA_inject_tidy")
+
+df_tidy_pseudomonas_inject$strain <- str_replace(df_tidy_pseudomonas_inject$strain, "25197", "DGRP-517")
+df_tidy_pseudomonas_inject$strain <- str_replace(df_tidy_pseudomonas_inject$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_pseudomonas_inject_avg <- df_tidy_pseudomonas_inject %>% group_by(strain, galbut, sex, hours) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_PA_inject <- ggplot(df_tidy_pseudomonas_inject_avg, aes(x=factor(hours), 
+                              y=avg_alive, 
+                              group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.text.x = element_text(size = 6),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("Pseudomonas aeruginosa Injected Flies") +
+  xlab("Hours post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_PA_inject
+```
+
+## Staphylococcus aureus inject challenge analysis
+P. aeruginosa is a Gram neg bacteria. Moved onto a Gram positive pathogen challenge with S. aureus (SA).
+
+```{r}
+df_surv_staph <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "SA_surv")
+
+df_surv_staph$strain <- str_replace(df_surv_staph$strain, "25197", "DGRP-517")
+df_surv_staph$strain <- str_replace(df_surv_staph$strain, "25192", "DGRP-399")
+
+```
+
+Get data ready again and then run analysis.
+
+```{r}
+df_surv_399_M_SA <- df_surv_staph %>% filter(strain == "DGRP-399", sex == "male", staphylococcus == TRUE)
+df_surv_399_F_SA <- df_surv_staph %>% filter(strain == "DGRP-399", sex == "female", staphylococcus == TRUE)
+
+
+df_surv_517_M_SA <- df_surv_staph %>% filter(strain == "DGRP-517", sex == "male", staphylococcus == TRUE)
+df_surv_517_F_SA <- df_surv_staph %>% filter(strain == "DGRP-517", sex == "female", staphylococcus == TRUE)
+
+
+
+sd_399_M_SA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_M_SA)
+sd_399_F_SA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_F_SA)
+
+sd_517_M_SA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_M_SA)
+sd_517_F_SA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_F_SA)
+
+#survival analysis
+1 - pchisq(sd_399_M_SA$chisq, length(sd_399_M_SA$n) - 1) # p = 0.0207
+1 - pchisq(sd_399_F_SA$chisq, length(sd_399_F_SA$n) - 1) # p = 0.0549
+
+1 - pchisq(sd_517_M_SA$chisq, length(sd_517_M_SA$n) - 1) # p = 0.0509
+1 - pchisq(sd_517_F_SA$chisq, length(sd_517_F_SA$n) - 1) # p = 0.00068
+```
+Plot survival curves using tidy data
+
+```{r}
+df_tidy_staph <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "SA_tidy")
+
+df_tidy_staph$strain <- str_replace(df_tidy_staph$strain, "25197", "DGRP-517")
+df_tidy_staph$strain <- str_replace(df_tidy_staph$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_staph_avg <- df_tidy_staph %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_staph <- ggplot(df_tidy_staph_avg, aes(x=day, 
+                   y=avg_alive, 
+                   group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("Staphylococcus aureus Injected Flies") +
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_staph
+```
+## Candida albicans inject challenge analysis
+
+Finally, we rounded out our pathogen experiments by challenging with a fungal pathogen, Candida albicans (CA).
+
+```{r}
+df_surv_CA <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "CA_surv")
+
+df_surv_CA$strain <- str_replace(df_surv_CA$strain, "25197", "DGRP-517")
+df_surv_CA$strain <- str_replace(df_surv_CA$strain, "25192", "DGRP-399")
+
+```
+
+Chop up the data and run the analysis.
+
+```{r}
+df_surv_399_M_CA <- df_surv_CA %>% filter(strain == "DGRP-399", sex == "male", candida == TRUE)
+df_surv_399_F_CA <- df_surv_CA %>% filter(strain == "DGRP-399", sex == "female", candida == TRUE)
+
+
+df_surv_517_M_CA <- df_surv_CA %>% filter(strain == "DGRP-517", sex == "male", candida == TRUE)
+df_surv_517_F_CA <- df_surv_CA %>% filter(strain == "DGRP-517", sex == "female", candida == TRUE)
+
+#run the analysis
+sd_399_M_CA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_M_CA)
+sd_399_F_CA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_F_CA)
+
+sd_517_M_CA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_M_CA)
+sd_517_F_CA <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_F_CA)
+
+#survival analysis
+1 - pchisq(sd_399_M_CA$chisq, length(sd_399_M_CA$n) - 1) # p = 6.5108e-6
+1 - pchisq(sd_399_F_CA$chisq, length(sd_399_F_CA$n) - 1) # p = 3.4735e-5
+
+1 - pchisq(sd_517_M_CA$chisq, length(sd_517_M_CA$n) - 1) # p = 0.1238
+1 - pchisq(sd_517_F_CA$chisq, length(sd_517_F_CA$n) - 1) # p = 0.7786
+
+```
+Plot the survival curves using tidy data
+
+```{r}
+df_tidy_CA <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "CA_tidy")
+
+df_tidy_CA$strain <- str_replace(df_tidy_CA$strain, "25197", "DGRP-517")
+df_tidy_CA$strain <- str_replace(df_tidy_CA$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_CA_avg <- df_tidy_CA %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_CA <- ggplot(df_tidy_CA_avg, aes(x=day, 
+                                     y=avg_alive, 
+                                     group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("Candida albicans Injected Flies") +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_CA
+
+```
+## Control analysis
+We ran controls alongside these infections. We have 3 control groups. Those that were injected with PBS and held at 25deg C (DCV, PA inject, Staph inject), those that were injected with PBS and held at 30deg C (CA), and those that were fed sucrose (PA oral challenge). The following analyzes the data.
+
+First PBS 25deg analysis
+```{r}
+df_surv_PBS_25 <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PBS_25_surv")
+
+df_surv_PBS_25$strain <- str_replace(df_surv_PBS_25$strain, "25197", "DGRP-517")
+df_surv_PBS_25$strain <- str_replace(df_surv_PBS_25$strain, "25192", "DGRP-399")
+```
+
+chop the data and do the analysis
+
+```{r}
+df_surv_399_M_PBS_25 <- df_surv_PBS_25 %>% filter(strain == "DGRP-399", sex == "male", PBS == TRUE)
+df_surv_399_F_PBS_25 <- df_surv_PBS_25 %>% filter(strain == "DGRP-399", sex == "female", PBS == TRUE)
+
+
+df_surv_517_M_PBS_25 <- df_surv_PBS_25 %>% filter(strain == "DGRP-517", sex == "male", PBS == TRUE)
+df_surv_517_F_PBS_25 <- df_surv_PBS_25 %>% filter(strain == "DGRP-517", sex == "female", PBS == TRUE)
+
+#run the analysis
+sd_surv_399_M_PBS_25 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_M_PBS_25)
+sd_surv_399_F_PBS_25 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_F_PBS_25)
+
+sd_surv_517_M_PBS_25 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_M_PBS_25)
+sd_surv_517_F_PBS_25 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_F_PBS_25)
+
+#survival analysis
+1 - pchisq(sd_surv_399_M_PBS_25$chisq, length(sd_surv_399_M_PBS_25$n) - 1) # p = 0.461
+1 - pchisq(sd_surv_399_F_PBS_25$chisq, length(sd_surv_399_F_PBS_25$n) - 1) # p = 0.398
+
+1 - pchisq(sd_surv_517_M_PBS_25$chisq, length(sd_surv_517_M_PBS_25$n) - 1) # p = 0.0547
+1 - pchisq(sd_surv_517_F_PBS_25$chisq, length(sd_surv_517_F_PBS_25$n) - 1) # p = 0.107
+```
+
+Then PBS 30deg analysis
+```{r}
+df_surv_PBS_30 <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PBS_30_surv")
+
+df_surv_PBS_30$strain <- str_replace(df_surv_PBS_30$strain, "25197", "DGRP-517")
+df_surv_PBS_30$strain <- str_replace(df_surv_PBS_30$strain, "25192", "DGRP-399")
+```
+
+chop the data and do the analysis
+
+```{r}
+df_surv_399_M_PBS_30 <- df_surv_PBS_30 %>% filter(strain == "DGRP-399", sex == "male", candida == FALSE)
+df_surv_399_F_PBS_30 <- df_surv_PBS_30 %>% filter(strain == "DGRP-399", sex == "female", candida == FALSE)
+
+
+df_surv_517_M_PBS_30 <- df_surv_PBS_30 %>% filter(strain == "DGRP-517", sex == "male", candida == FALSE)
+df_surv_517_F_PBS_30 <- df_surv_PBS_30 %>% filter(strain == "DGRP-517", sex == "female", candida == FALSE)
+
+#run the analysis
+sd_surv_399_M_PBS_30 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_M_PBS_30)
+sd_surv_399_F_PBS_30 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_F_PBS_30)
+
+sd_surv_517_M_PBS_30 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_M_PBS_30)
+sd_surv_517_F_PBS_30 <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_F_PBS_30)
+
+#survival analysis
+1 - pchisq(sd_surv_399_M_PBS_30$chisq, length(sd_surv_399_M_PBS_30$n) - 1) # p = 0.971
+1 - pchisq(sd_surv_399_F_PBS_30$chisq, length(sd_surv_399_F_PBS_30$n) - 1) # p = 0.777
+
+1 - pchisq(sd_surv_517_M_PBS_30$chisq, length(sd_surv_517_M_PBS_30$n) - 1) # p = 0.0738
+1 - pchisq(sd_surv_517_F_PBS_30$chisq, length(sd_surv_517_F_PBS_30$n) - 1) # p = 0.622
+
+```
+
+Finally sucrose analysis
+```{r}
+df_surv_sucrose <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "sucrose_surv")
+
+df_surv_sucrose$strain <- str_replace(df_surv_sucrose$strain, "25197", "DGRP-517")
+df_surv_sucrose$strain <- str_replace(df_surv_sucrose$strain, "25192", "DGRP-399")
+```
+
+chop the data and do the analysis
+
+```{r}
+df_surv_399_M_sucrose <- df_surv_sucrose %>% filter(strain == "DGRP-399", sex == "male", pseudomonas == FALSE)
+df_surv_399_F_sucrose <- df_surv_sucrose %>% filter(strain == "DGRP-399", sex == "female", pseudomonas == FALSE)
+
+
+df_surv_517_M_sucrose <- df_surv_sucrose %>% filter(strain == "DGRP-517", sex == "male", pseudomonas == FALSE)
+df_surv_517_F_sucrose <- df_surv_sucrose %>% filter(strain == "DGRP-517", sex == "female", pseudomonas == FALSE)
+
+#run the analysis
+sd_surv_399_M_sucrose <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_M_sucrose)
+sd_surv_399_F_sucrose <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_399_F_sucrose)
+
+sd_surv_517_M_sucrose <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_M_sucrose)
+sd_surv_517_F_sucrose <- survdiff(Surv(days_survived, !censor) ~ galbut, data = df_surv_517_F_sucrose)
+
+#survival analysis
+1 - pchisq(sd_surv_399_M_sucrose$chisq, length(sd_surv_399_M_sucrose$n) - 1) # p = 0.0116
+1 - pchisq(sd_surv_399_F_sucrose$chisq, length(sd_surv_399_F_sucrose$n) - 1) # p = 0.0647
+
+1 - pchisq(sd_surv_517_M_sucrose$chisq, length(sd_surv_517_M_sucrose$n) - 1) # p = 0.00292
+1 - pchisq(sd_surv_517_F_sucrose$chisq, length(sd_surv_517_F_sucrose$n) - 1) # p = 0.184
+
+```
+Only sucrose feeding controls had significant differences. This means there are likely some confidence issues in what we measure in the experimental groups as well.
+
+Plotting all controls on the same plot.
+
+```{r}
+df_tidy_controls <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "controls_combined_tidy")
+
+df_tidy_controls$strain <- str_replace(df_tidy_controls$strain, "25197", "DGRP-517")
+df_tidy_controls$strain <- str_replace(df_tidy_controls$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_controls_avg <- df_tidy_controls %>% group_by(strain, galbut, sex, day, cont_type) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_controls <- ggplot(df_tidy_controls_avg, aes(x=day, 
+                                     y=avg_alive, 
+                                     group=interaction(strain, galbut, sex, cont_type)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut, linetype = cont_type)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("Control Challenged Flies") +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_controls
+```
+Looks congested though, so will split each one into a separate plot.
+
+First do PBS 25deg C controls
+```{r}
+df_tidy_PBS_25 <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PBS_25_tidy")
+
+df_tidy_PBS_25$strain <- str_replace(df_tidy_PBS_25$strain, "25197", "DGRP-517")
+df_tidy_PBS_25$strain <- str_replace(df_tidy_PBS_25$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_PBS_25_avg <- df_tidy_PBS_25 %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_PBS_25 <- ggplot(df_tidy_PBS_25_avg, aes(x=day, 
+                                     y=avg_alive, 
+                                     group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  scale_x_continuous(breaks=seq(0,14,2)) +
+  ggtitle("PBS 25deg Control Injected Flies") +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_PBS_25
+```
+
+Now for 30deg C control flies
+
+```{r}
+df_tidy_PBS_30 <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "PBS_30_tidy")
+
+df_tidy_PBS_30$strain <- str_replace(df_tidy_PBS_30$strain, "25197", "DGRP-517")
+df_tidy_PBS_30$strain <- str_replace(df_tidy_PBS_30$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_PBS_30_avg <- df_tidy_PBS_30 %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_PBS_30 <- ggplot(df_tidy_PBS_30_avg, aes(x=day, 
+                                     y=avg_alive, 
+                                     group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("PBS 30deg Control Injected Flies") +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_PBS_30
+```
+
+Finally doing it for sucrose controls
+
+```{r}
+df_tidy_sucrose <- read_excel("pathogen_challenge_data_all.xlsx", sheet = "sucrose_tidy")
+
+df_tidy_sucrose$strain <- str_replace(df_tidy_sucrose$strain, "25197", "DGRP-517")
+df_tidy_sucrose$strain <- str_replace(df_tidy_sucrose$strain, "25192", "DGRP-399")
+
+# average replicates
+df_tidy_sucrose_avg <- df_tidy_sucrose %>% group_by(strain, galbut, sex, day) %>% summarize(avg_alive = mean(percent_alive), std_alive = sd(percent_alive)) 
+
+# plot it
+p_sucrose <- ggplot(df_tidy_sucrose_avg, aes(x=day, 
+                                     y=avg_alive, 
+                                     group=interaction(strain, galbut, sex)))  + 
+  geom_point(size=0.5) +
+  geom_line(aes(color=galbut)) +
+  geom_errorbar(aes(ymin = (avg_alive - std_alive), ymax = (avg_alive + std_alive)), width = 0.2, color="grey50", size=0.2) +
+  facet_grid(sex~strain) + 
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  theme_bw() + 
+  theme(panel.grid=element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 9),
+        legend.position = "none",
+        axis.text = element_text(size = 7),
+        axis.title = element_text(size = 8),
+        strip.text.x = element_text(size = 7.5),
+        strip.text.y = element_text(size = 7.5)) +
+  ggtitle("Sucrose Control Challenged Flies") +
+  coord_cartesian(ylim=c(0,100)) + #have to use this to rescale as other scaling makes the error bars disappear
+  scale_x_continuous(breaks=seq(0,12,2)) +
+  xlab("Days post injection")  +
+  ylab("Mean percent flies alive per vial")
+
+p_sucrose
+```
+
+Now combine all the plots into one for the figure.
+
+```{r}
+plot_grid(p_DCV, p_PA_feed, p_PA_inject, p_staph, p_CA, p_PBS_25, p_PBS_30, p_sucrose,
+          labels = "AUTO", label_size = 11,
+          ncol = 2)
+ggsave("pathogen_challenge_plot_v2.pdf", width = 6.5, height = 8.5, units = "in")
+
+```
