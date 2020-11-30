@@ -1,0 +1,407 @@
+---
+title: "Fitness_Complete_Fecundity_Analysis"
+author: "Shaun Cross and Mark Stenglein"
+date: "5/7/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(tidy.opts=list(width.cutoff=80),tidy=TRUE)
+```
+
+## Analyze Fitness Experiment #1 Fecundity span data
+
+## Note: This is the complete analysis. Edits are made by Shaun Cross, but majority script designed by Mark's previous Rmd.
+
+### Questions:
+1. Do flies produce more offspring when infected with galbut virus?
+2. Do flies change their rate/timing of offspring production when infected with galbut virus?
+3. Do flies change the sex ratio of their offspring when infected with galbut virus?
+
+
+## Experimental setup and data processing notes: 
+
+**Expt'al setup:**
+For strains 25192 and 25197: 
+For each of these strains, there was a galbut-infected and a galbut-uninfected sub-strain
+For each sub-strain: 5 replicate vials were setup with 5 M and 5 F adults (immediately after eclosion)
+Every 3 days these original flies were transferred to new vials.
+Two weeks later, the # of eclosed adult offspring in each vial was counted and the # of males and females
+
+Shaun, Ali, and Tillie are recorded these offspring counts in this spreadsheet:
+https://docs.google.com/spreadsheets/d/1GRPyScyD4YK8LGHbXkpnjkVacb3gZCfW0kjQn3PwqsU/edit#gid=329500492
+
+Downloaded this complete data and put it into an Excel spreadsheet: Lifespan_complete_fecundity_tidy_data.xlsx
+in a slightly cleaned up format.  
+
+This analysis and the relevant files can be found in this google drive directory:
+https://drive.google.com/drive/folders/1UVIeyWOw1Gw_1XB7BMZE5wkReud1KICY?usp=sharing
+
+```{r warning=FALSE, message=FALSE}
+# load libs
+library(tidyverse)
+library(readxl)
+library(lubridate)
+library(broom)
+```
+
+
+### Read the data in and do some pre-processing/summarizing
+
+```{r}
+#set working directory to where this file is saved
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+# read file:
+df <- read_excel("Lifespan_complete_fecundity_tidy_data.xlsx")
+
+# rename BDSC strains IDs with DGRP names
+df$strain <- str_replace(df$strain, "25192", "DGRP-399")
+df$strain <- str_replace(df$strain, "25197", "DGRP-517")
+
+# Calculate normalized offspring per adults in vial 
+# This takes into account the fact that some parents begin to die over time
+#
+# This is not the perfect normalization to do since the surviving adults might be more males than females, but it ought to be reasonably close
+#
+# NOTE: this is configurable on the line below.
+# I got essentially the same results when I didn't normalize.  There were fewer `
+#
+# keep track of pre-normalized values too
+df <- df %>% mutate (non_normalized_male_offspring = male_offspring) 
+df <- df %>% mutate (non_normalized_female_offspring = female_offspring)
+
+normalize_offspring_counts <- 1
+if (normalize_offspring_counts == TRUE) {
+  df <- df %>% mutate (male_offspring = male_offspring / parents_in_vial)
+  df <- df %>% mutate (female_offspring = female_offspring / parents_in_vial)
+}
+
+# calculate sex ratios
+df <- df %>% mutate (sex_ratio = male_offspring / female_offspring)
+
+# average replicates
+df_avg <- df %>% group_by(strain, galbut, date_offspring_collected) %>% 
+  summarize(avg_males = mean(male_offspring), std_males = sd(male_offspring), 
+            avg_females = mean(female_offspring), std_females = sd(female_offspring),
+            avg_parents = mean(parents_in_vial), std_parents = sd(parents_in_vial),
+            avg_total = mean(emerged_offspring), std_total = sd(emerged_offspring)) 
+
+# calculate cumulative sums of offspring per condition/replicate
+df_sum <- df %>% group_by(strain, galbut, replicate) %>% mutate(cumulative_males = cumsum(male_offspring),
+                                                                cumulative_females = cumsum(female_offspring))
+# average cumulative replicates
+df_sum_avg <- df_sum %>% group_by(strain, galbut, date_offspring_collected) %>% 
+  summarize(avg_cumulative_males = mean(cumulative_males), std_males = sd(cumulative_males), 
+            avg_cumulative_females = mean(cumulative_females), std_females = sd(cumulative_females)) 
+
+# calculate un-normalized cumulative sums of offspring per condition/replicate
+df_non_normalized_sum <- df %>% group_by(strain, galbut, replicate) %>% 
+  mutate(cumulative_males = cumsum(non_normalized_male_offspring),
+         cumulative_females = cumsum(non_normalized_female_offspring))
+
+# nono-normalized average cumulative replicates
+df_non_normalized_sum_avg <- df_non_normalized_sum %>% group_by(strain, galbut, date_offspring_collected) %>% 
+  summarize(avg_cumulative_males = mean(cumulative_males), 
+            std_males = sd(cumulative_males), 
+            avg_cumulative_females = mean(cumulative_females), 
+            std_females = sd(cumulative_females)) 
+```
+
+#### Make some plots to visualize results
+
+```{r}
+# plot sex ratios overall
+ggplot(df) +
+  geom_jitter(aes(x=galbut, y=sex_ratio, color=galbut), height=0, width=0.25) +
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("No difference in galbut infected/uninfected sex ratios") +
+  xlab("galbut virus infection status") +
+  ylab("male offspring / female offspring")
+
+ggsave("offspring_sex_ratio.pdf", width = 5, height = 5, units = "in")
+```
+
+```{r}
+# are these differences statistically significant? (no)
+df %>% filter(is.finite(sex_ratio)) %>% group_by(strain) %>% do(tidy(t.test(sex_ratio ~ galbut, paired=FALSE, data=.)))
+```
+
+
+```{r}
+# do sex ratios change over time?  (not obviously)
+ggplot(df) +
+  geom_jitter(aes(x=date_offspring_collected, y=sex_ratio, color=galbut), height=0, width=1)+
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("Sex ratios do not change over time in an obvious way") +
+  xlab("galbut virus infection status") +
+  ylab("male offspring / female offspring")
+```
+
+```{r}
+# Plot #s of female offspring
+ggplot(df) + 
+  # geom_jitter(aes(x=date_offspring_collected,
+  geom_jitter(aes(x=galbut,
+                  y=female_offspring, 
+                  color=galbut),
+              height=0,
+              width=0.1)+
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("Difference in # of female offspring between galbut infected and uninfected flies") +
+  xlab("Galbut virus infection status") +
+  ylab("Number female offspring per vial per surviving parent")
+```
+
+```{r}
+# are these differences statistically significant? (no to both)
+df %>% group_by(strain) %>% do(tidy(t.test(female_offspring ~ galbut, paired=FALSE, data=.)))
+```
+
+```{r}
+# Plot #s of male offspring
+ggplot(df) + 
+  # geom_jitter(aes(x=date_offspring_collected,
+  geom_jitter(aes(x=galbut,
+                  y=male_offspring, 
+                  color=galbut),
+              height=0,
+              width=0.1)+
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("Difference in # of male offspring between galbut infected and uninfected flies") +
+  xlab("Galbut virus infection status") +
+  ylab("Number male offspring per vial per surviving parent")
+```
+
+```{r}
+# are these differences statistically significant? (399 no, 517 yes)
+df %>% group_by(strain) %>% do(tidy(t.test(male_offspring ~ galbut, paired=FALSE, data=.)))
+```
+
+```{r}
+#do total offspring vary based upon strain (outside of infection status)? Very sig!
+
+View(df)
+df %>% group_by(galbut) %>% do(tidy(t.test(emerged_offspring ~ strain, paired=FALSE, data=.)))
+
+```
+
+```{r}
+#now let's plot the total number of offspring by strain
+
+```
+
+```{r}
+# Plot cumulative #s of offspring
+ggplot(df_sum) + 
+  geom_line(aes(x=date_offspring_collected,
+                  y=cumulative_males,
+                  group=interaction(strain,galbut,replicate),
+                  color=galbut)) + 
+  geom_line(aes(x=date_offspring_collected,
+                  y=cumulative_females,
+                  group=interaction(strain,galbut,replicate),
+                  color=galbut)) +
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("No difference in cumulative # of offspring between galbut infected and uninfected flies") +
+  xlab("Date adult offspring counted") +
+  ylab("Cumulative # of adult offspring per vial per surviving parent") 
+```
+
+```{r}
+# Plot average cumulative #s of offspring
+ggplot(df_sum_avg) + 
+  geom_line(aes(x=date_offspring_collected,
+                  y=avg_cumulative_males,
+                  group=interaction(strain,galbut),
+                  color=galbut),
+            linetype=1) + 
+  geom_errorbar(aes(x=date_offspring_collected, 
+                    ymin = (avg_cumulative_males - std_males), 
+                    ymax = (avg_cumulative_males + std_males), color=galbut), width = 10, size=0.2) +
+  geom_line(aes(x=date_offspring_collected,
+                  y=avg_cumulative_females,
+                  group=interaction(strain,galbut),
+                  color=galbut),  
+            linetype=2) + 
+  geom_errorbar(aes(x=date_offspring_collected, 
+                    ymin = (avg_cumulative_females - std_females), 
+                    ymax = (avg_cumulative_females + std_females), color=galbut), width = 1, size=0.2) +
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  # ggtitle("Slightly reduced cumulative # of offspring in galbut-infected 25192 flies\n25197 produce fewer female offspring (skewed sex ratio)\n(dotted line = female offspring)") +
+  xlab("") +
+  ylab("Cumulative # of adult offspring per surviving parent") 
+
+#ggsave("cumulative_offspring_plot.pdf")
+```
+
+You can see that there is a lower # of cumulative offspring in the non-normalized cumulative offspring plot below for galbut-infected 21592.  This likely reflects a slightly reduced survivorship of the parents in galbut-infected 25192.
+
+```{r}
+# Plot NON-NORMALIZED average cumulative #s of offspring
+ggplot(df_non_normalized_sum_avg) + 
+  geom_line(aes(x=date_offspring_collected,
+                  y=avg_cumulative_males,
+                  group=interaction(strain,galbut),
+                  color=galbut),
+            linetype=1) + 
+  geom_errorbar(aes(x=date_offspring_collected, 
+                    ymin = (avg_cumulative_males - std_males), 
+                    ymax = (avg_cumulative_males + std_males), color=galbut),  width = 10, size=0.2) +
+  geom_line(aes(x=date_offspring_collected,
+                  y=avg_cumulative_females,
+                  group=interaction(strain,galbut),
+                  color=galbut),  
+            linetype=2) + 
+  geom_errorbar(aes(x=date_offspring_collected, 
+                    ymin = (avg_cumulative_females - std_females), 
+                    ymax = (avg_cumulative_females + std_females), color=galbut),  width = 1, size=0.2) +
+  facet_wrap(~strain, scales="free_y") +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("Slightly reduced cumulative # of offspring in galbut-infected 25192 flies\n25197 produce fewer female offspring\n(dotted line = female offspring)\nnon-normalized version of above plot") +
+  xlab("Date adult offspring counted") +
+  ylab("Cumulative # of adult offspring per vial") 
+
+#View(df_non_normalized_sum_avg)
+
+```
+
+
+#### Plot # of surviving parents 
+
+```{r}
+# Plot # of surviving parents 
+ggplot(df_avg) + 
+  geom_line(aes(x=date_offspring_collected,
+                  y=avg_parents,
+                  group=interaction(strain,galbut),
+                  color=galbut),
+            linetype=1) + 
+  geom_errorbar(aes(x=date_offspring_collected, 
+                    ymin = (avg_parents - std_parents), 
+                    ymax = (avg_parents + std_parents), color=galbut),  width = 10, size=0.2) +
+  facet_wrap(~strain) +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  ggtitle("Slightly reduced survivorship of galbut-infected 25192 parents") +
+  xlab("Date adult offspring counted") +
+  ylab("Average # of parents in vial")
+```
+#### Change the dates into days since collected for better plotting
+#### Will need to split df into 2 dataframes, then paste back together
+```{r}
+# Write function to convert dates to days
+date_to_days <- function(x, start_date) {
+  start_date <- start_date
+  end <- ymd(x)
+  elapsed.time <- start_date %--% end
+  days_passed <- as.duration(elapsed.time) / ddays(1)
+}
+
+View(df_non_normalized_sum_avg_97)
+df_non_normalized_sum_avg_97 <- df_non_normalized_sum_avg %>% filter(strain == "DGRP-517")
+df_non_normalized_sum_avg_97 <- cbind(df_non_normalized_sum_avg_97, lapply(df_non_normalized_sum_avg_97[3], date_to_days, start_date = "2019-12-09"))
+View(df_non_normalized_sum_avg_97)
+names(df_non_normalized_sum_avg_97)[names(df_non_normalized_sum_avg_97) == "date_offspring_collected...8"] <- "days_offspring_collected"
+
+df_non_normalized_sum_avg_92 <- df_non_normalized_sum_avg %>% filter(strain == "DGRP-399")
+df_non_normalized_sum_avg_92 <- cbind(df_non_normalized_sum_avg_92, lapply(df_non_normalized_sum_avg_92[3], date_to_days, start_date = "2019-11-25"))
+names(df_non_normalized_sum_avg_92)[names(df_non_normalized_sum_avg_92) == "date_offspring_collected...8"] <- "days_offspring_collected"
+
+df_non_normalized_sum_avg_days <- bind_rows(df_non_normalized_sum_avg_92, df_non_normalized_sum_avg_97)
+
+View(df_non_normalized_sum_avg_days)
+
+```
+# Plot this new days version
+```{r}
+# Plot NON-NORMALIZED average cumulative #s of offspring
+ggplot(df_non_normalized_sum_avg_days) + 
+  geom_line(aes(x=days_offspring_collected,
+                  y=avg_cumulative_males,
+                  group=interaction(strain,galbut),
+                  color=galbut),
+            linetype=1) + 
+  geom_errorbar(aes(x=days_offspring_collected, 
+                    ymin = (avg_cumulative_males - std_males), 
+                    ymax = (avg_cumulative_males + std_males), color=galbut),  width = 1, size=0.2) +
+  geom_line(aes(x=days_offspring_collected,
+                  y=avg_cumulative_females,
+                  group=interaction(strain,galbut),
+                  color=galbut),  
+            linetype=2) + 
+ geom_errorbar(aes(x=days_offspring_collected, 
+                    ymin = (avg_cumulative_females - std_females), 
+                    ymax = (avg_cumulative_females + std_females), color=galbut),  width = 1, size=0.2) +
+  facet_wrap(~strain, scales="free_y") +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#56B4E9", "#D55E00")) +
+  scale_x_continuous(name="Days adult offspring counted", limits=c(14, 75)) +
+  #scale_y_continuous(name="Cumulative # of adult offspring per vial", limits=c(0, 450))
+  #ggtitle("Slightly reduced cumulative # of offspring in galbut-infected 25192 flies\n25197 produce fewer female offspring\n(dotted line = female offspring)\nnon-normalized version of above plot")
+  #xlab("Date adult offspring counted") +
+  ylab("Cumulative # of adult offspring per vial") 
+
+
+ggsave("cummulative_offspring_days_axis.pdf")
+
+```
+
+#plotting total num of offspring by strain for supp fig
+#this does not include galbut virus infected flies
+#first filter out galbut virus positive flies, then plot
+
+```{r}
+
+#filter out galbut virus positive data
+df_non_normalized_sum_avg_days_filt <- df_non_normalized_sum_avg_days %>% filter(galbut == FALSE)
+
+ggplot(df_non_normalized_sum_avg_days_filt) + 
+  geom_line(aes(x=days_offspring_collected,
+                  y=avg_cumulative_males,
+                  color=strain),
+            linetype=1) + 
+  geom_errorbar(aes(x=days_offspring_collected, 
+                    ymin = (avg_cumulative_males - std_males), 
+                    ymax = (avg_cumulative_males + std_males), color=strain),  width = 1, size=0.2) +
+  geom_line(aes(x=days_offspring_collected,
+                  y=avg_cumulative_females,
+                  color=strain),  
+            linetype=2) + 
+ geom_errorbar(aes(x=days_offspring_collected, 
+                    ymin = (avg_cumulative_females - std_females), 
+                    ymax = (avg_cumulative_females + std_females), color=strain),  width = 1, size=0.2) +
+  #facet_wrap(~strain, scales="free_y") +
+  theme_bw() + 
+  theme(panel.grid=element_blank()) +
+  scale_color_manual(values = c("#009E73", "#CC79A7")) +
+  scale_x_continuous(name="Days adult offspring counted", limits=c(14, 75)) +
+  #scale_y_continuous(name="Cumulative # of adult offspring per vial", limits=c(0, 450))
+  #ggtitle("Slightly reduced cumulative # of offspring in galbut-infected 25192 flies\n25197 produce fewer female offspring\n(dotted line = female offspring)\nnon-normalized version of above plot")
+  #xlab("Date adult offspring counted") +
+  ylab("Cumulative # of adult offspring per vial")
+```
