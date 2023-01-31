@@ -3,8 +3,8 @@ title: "Fitness_Complete_Fecundity_Analysis"
 author: "Shaun Cross and Mark Stenglein"
 date: "5/7/2020"
 output:
-  pdf_document: default
   html_document: default
+  pdf_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -93,6 +93,7 @@ df_avg <- df %>% group_by(strain, galbut, date_offspring_collected) %>%
 # calculate cumulative sums of offspring per condition/replicate
 df_sum <- df %>% group_by(strain, galbut, replicate) %>% mutate(cumulative_males = cumsum(male_offspring),
                                                                 cumulative_females = cumsum(female_offspring))
+
 # average cumulative replicates
 df_sum_avg <- df_sum %>% group_by(strain, galbut, date_offspring_collected) %>% 
   summarize(avg_cumulative_males = mean(cumulative_males), std_males = sd(cumulative_males), 
@@ -131,16 +132,6 @@ ggsave("offspring_sex_ratio.pdf", width = 5, height = 5, units = "in")
 ```{r}
 # are these differences statistically significant? (no)
 df %>% filter(is.finite(sex_ratio)) %>% group_by(strain) %>% do(tidy(t.test(sex_ratio ~ galbut, paired=FALSE, data=.)))
-
-lm_trt <- df %>% filter(is.finite(sex_ratio)) %>% filter(strain=="DGRP-399") %>% lm(sex_ratio ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
-
-lm_trt <- df %>% filter(is.finite(sex_ratio)) %>% filter(strain=="DGRP-517") %>% lm(sex_ratio ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
 ```
 
 
@@ -156,6 +147,24 @@ ggplot(df) +
   xlab("galbut virus infection status") +
   ylab("male offspring / female offspring")
 ```
+
+## are the # of offspring distributions normally distributed?
+
+```{r}
+# use the Shpapiro-Wilk test to assess normality of offspring # distributions
+
+# tabulate all offspring counts for each day for each group 
+df_groups <- df_non_normalized_sum %>% group_by(vial_data, strain)  %>% select(vial_data, strain, cumulative_males, cumulative_females)
+df_male_shapiro_pvals   <- df_groups %>% summarize(p_vals = shapiro.test(cumulative_males)$p.value, .groups="drop")
+df_female_shapiro_pvals <- df_groups %>% summarize(p_vals = shapiro.test(cumulative_females)$p.value, .groups="drop")
+
+# are any of the p-values significant?
+filter(df_male_shapiro_pvals, p_vals < 0.05)
+filter(df_female_shapiro_pvals, p_vals < 0.05)
+
+```
+
+## Plot offspring #s and do stats
 
 ```{r}
 # Plot #s of female offspring
@@ -178,15 +187,6 @@ ggplot(df) +
 ```{r}
 # are these differences statistically significant? (no to both)
 df %>% group_by(strain) %>% do(tidy(t.test(female_offspring ~ galbut, paired=FALSE, data=.)))
-
-lm_trt <- df %>% filter(strain=="DGRP-399") %>% lm(female_offspring ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
-lm_trt <- df %>% filter(strain=="DGRP-517") %>% lm(female_offspring ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
 ```
 
 ```{r}
@@ -210,35 +210,16 @@ ggplot(df) +
 ```{r}
 # are these differences statistically significant? (399 no, 517 yes)
 df %>% group_by(strain) %>% do(tidy(t.test(male_offspring ~ galbut, paired=FALSE, data=.)))
-lm_trt <- df %>% filter(strain=="DGRP-399") %>% lm(male_offspring ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
-lm_trt <- df %>% filter(strain=="DGRP-517") %>% lm(male_offspring ~ galbut, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
-
 ```
 
 ```{r}
 #do total offspring vary based upon strain (outside of infection status)? Very sig!
-
-View(df)
-df %>% group_by(galbut) %>% do(tidy(t.test(emerged_offspring ~ strain, paired=FALSE, data=.)))
-
-#statistics by wald test
-lm_trt <- df %>% group_by(galbut) %>% lm(emerged_offspring ~ strain, data=.)
-summary(lm_trt)
-wald.test(Sigma = vcov(lm_trt), b = coef(lm_trt), Terms = 2)
+df %>% do(tidy(t.test(emerged_offspring ~ strain, paired=FALSE, data=.)))
 ```
 
-```{r}
-#now let's plot the total number of offspring by strain
-
-```
 
 ```{r}
-# Plot cumulative #s of offspring
+# Plot cumulative #s of offspring - showing individual biological replicates
 ggplot(df_sum) + 
   geom_line(aes(x=date_offspring_collected,
                   y=cumulative_males,
@@ -353,10 +334,10 @@ date_to_days <- function(x, start_date) {
   days_passed <- as.duration(elapsed.time) / ddays(1)
 }
 
-View(df_non_normalized_sum_avg_97)
+# View(df_non_normalized_sum_avg_97)
 df_non_normalized_sum_avg_97 <- df_non_normalized_sum_avg %>% filter(strain == "DGRP-517")
 df_non_normalized_sum_avg_97 <- cbind(df_non_normalized_sum_avg_97, lapply(df_non_normalized_sum_avg_97[3], date_to_days, start_date = "2019-12-09"))
-View(df_non_normalized_sum_avg_97)
+# View(df_non_normalized_sum_avg_97)
 names(df_non_normalized_sum_avg_97)[names(df_non_normalized_sum_avg_97) == "date_offspring_collected...8"] <- "days_offspring_collected"
 
 df_non_normalized_sum_avg_92 <- df_non_normalized_sum_avg %>% filter(strain == "DGRP-399")
@@ -365,9 +346,13 @@ names(df_non_normalized_sum_avg_92)[names(df_non_normalized_sum_avg_92) == "date
 
 df_non_normalized_sum_avg_days <- bind_rows(df_non_normalized_sum_avg_92, df_non_normalized_sum_avg_97)
 
-View(df_non_normalized_sum_avg_days)
+# View(df_non_normalized_sum_avg_days)
 
 ```
+
+
+
+
 # Plot this new days version
 ```{r}
 # Plot NON-NORMALIZED average cumulative #s of offspring
