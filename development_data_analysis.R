@@ -8,6 +8,7 @@
 library(tidyverse)
 library(readxl)
 library(ggpubr)
+library(rstatix)
 
 #set wd to where this file is saved
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
