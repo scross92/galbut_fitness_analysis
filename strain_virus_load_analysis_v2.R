@@ -41,9 +41,11 @@ df_load <- df_load %>% mutate(strain, strain = if_else(strain == "25192", "DGRP 
 #do wilcoxon test
 #showing it on a plot to be able to use tidyverse (ggplot2 with ggpubr)
 
+?geom_boxplot
+
 ggplot(df_load, aes(sex, normalized)) +
-  geom_boxplot(aes(fill = factor(strain), alpha = 0.8)) +
-  geom_point(position = position_jitter(width = 0.15), aes(fill = interaction(strain)),
+  geom_boxplot(aes(fill = factor(strain)), alpha = 0.8, outlier.shape = NA) +
+  geom_point(position = position_jitter(width = 0.15), aes(fill = strain),
              pch=21) +
   labs(y = "Galbut virus RNA levels relative to RpL32",
        x = "") +
@@ -52,12 +54,12 @@ ggplot(df_load, aes(sex, normalized)) +
   theme(legend.position = "none",
         plot.title = element_text(hjust = 0.5),
         panel.grid = element_blank() ) +
-  scale_y_continuous() +
+  scale_y_continuous(limits=c(0,260)) +
   facet_wrap(~factor(strain)) +
   stat_compare_means(label.x = 0.8, size=3) #this naturally chose to do Wilcoxon
 
-ggsave("strain_virus_load_2.pdf", width = 7.5, height = 4, units = "in")
-ggsave("strain_virus_load.tiff", width = 7.5, height = 4, units = "in", dpi=300)
+ggsave("fig1_strain_virus_load_v4.pdf", width = 7.5, height = 4, units = "in")
+ggsave("fig1_strain_virus_load_v4.tiff", width = 7.5, height = 4, units = "in", dpi=300)
 
 
 
